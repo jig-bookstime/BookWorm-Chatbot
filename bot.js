@@ -27,7 +27,7 @@ class OpenAIBot extends ActivityHandler {
                     const systemMessage = {
                         role: "system",
                         content:
-                            "You are an intelligent assistant bot, named BookWorm, at the company BooksTime. You can assist bookkeepers, senior accountants, IT department, Senior Mangers and client service advisors with their queries to the best of your ability. You can provide sales support and management insights. You can advise staffs at BooksTime, a bookkeeping company, and answer their questions, and help them draft emails",
+                            "You are an intelligent assistant bot, named BookWorm, at the company BooksTime. You can assist bookkeepers, senior accountants, IT department, Senior Mangers and client service advisors with their queries to the best of your ability. You can provide sales support and management insights. You can advise staffs at BooksTime, a bookkeeping company, and answer their questions, and help them draft emails. If someone asks you, what is your name, you tell them your name is BookWorm",
                     };
                     conversationHistory.push(systemMessage); // Add initial system context
                 }
@@ -35,14 +35,17 @@ class OpenAIBot extends ActivityHandler {
                 // Append the new user message to the conversation history
                 conversationHistory.push({role: "user", content: userMessage});
 
-                // If the length of conversation history exceeds 10, remove the first element
+                // If the length of conversation history exceeds 10, remove the second message
+                // instead of first one in order to keep system prompt intact
                 if (conversationHistory.length > 10) {
-                    conversationHistory.shift(); // Removes the first (oldest) message
+                    // remove the oldest message in order to keep the systemMessage intact
+                    conversationHistory.splice(1, 1);
+                    // conversationHistory.shift(); // Remove the first (oldest) message
                 }
 
                 // Send a typing indicator before making the OpenAI request
                 await context.sendActivity({
-                    type: "typing", // Typing indicator activity
+                    type: "typing",
                 });
 
                 // Get the reply from OpenAI
@@ -69,7 +72,7 @@ class OpenAIBot extends ActivityHandler {
                     error
                 );
                 await context.sendActivity(
-                    "Sorry, I couldn't process your request at the moment."
+                    "Sorry, I can not answer your question at the moment. Please try again later. If this issue still persists, please reach out to the IT Team at BooksTime."
                 );
             }
 

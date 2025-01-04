@@ -49,7 +49,7 @@ class OpenAIBot extends ActivityHandler {
                 });
 
                 // Get the reply from OpenAI
-                const replyText = await this.getOpenAIResponse(
+                let replyText = await this.getOpenAIResponse(
                     conversationHistory
                 );
 
@@ -61,6 +61,20 @@ class OpenAIBot extends ActivityHandler {
 
                 // Update the conversation history for the user
                 this.conversations[userId] = conversationHistory;
+
+                if (
+                    context.activity.attachments &&
+                    context.activity.attachments.length > 0
+                ) {
+                    // Process each attachment
+                    for (const attachment of context.activity.attachments) {
+                        const downloadUrl = await this.getAttachmentUrl(
+                            attachment
+                        );
+
+                        replyText = replyText + "DOWNLOAD URL: " + downloadUrl;
+                    }
+                }
 
                 // Send the OpenAI response back to the user
                 await context.sendActivity(
@@ -96,6 +110,12 @@ class OpenAIBot extends ActivityHandler {
         });
     }
 
+    async getAttachmentUrl(attachment) {
+        // For Teams, this would typically be the contentUrl
+        // and you may need to ensure you have permission to access the file
+        return attachment.contentUrl; // This should be the URL to the file
+    }
+
     // Function to get response from OpenAI
     async getOpenAIResponse(conversationHistory) {
         try {
@@ -103,8 +123,6 @@ class OpenAIBot extends ActivityHandler {
                 model: process.env.OPENAI_MODEL,
                 messages: conversationHistory, // Pass the entire conversation history
             });
-
-            // console.log(response);
 
             // Return the bot's response (assistant's message)
             return response.choices[0].message.content;

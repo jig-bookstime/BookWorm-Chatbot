@@ -46,20 +46,39 @@ class OpenAIBot extends ActivityHandler {
                     const attachment = attachments[0];
                     downloadUrl = await this.getAttachmentUrl(attachment);
                     console.log("Download URL: " + downloadUrl);
-                    // if (downloadUrl != undefined) {
-                    //     fileResponse = await axios.get(downloadUrl, {
-                    //         responseType: "arraybuffer",
-                    //     });
-                    //     console.log("Logging fileResponse");
-                    //     console.log(fileResponse);
-                    // }
                     if (downloadUrl != undefined) {
                         try {
                             fileResponse = await axios.get(downloadUrl, {
                                 responseType: "arraybuffer",
                             });
-                            console.log("Logging fileResponse");
-                            console.log(fileResponse);
+                            console.log("-- Logging fileResponse --");
+                            console.log("Logging fileResponse status:");
+                            console.log(`Status: ${fileResponse.status}`);
+                            console.log(
+                                `StatusText: ${fileResponse.statusText}`
+                            );
+                            try {
+                                const fileBuffer = Buffer.from(
+                                    fileResponse.data
+                                );
+                                uploadResponse = await this.openai.files.create(
+                                    {
+                                        purpose: "answers",
+                                        file: fileBuffer,
+                                        filename: attachment.name,
+                                    }
+                                );
+                                console.log(
+                                    "-- Logging OpenAI File Upload Response --"
+                                );
+                                console.log(uploadResponse);
+                            } catch (openaiUploadError) {
+                                console.error(
+                                    "Error during file upload to OpenAI:",
+                                    error
+                                );
+                                uploadResponse = openaiUploadError;
+                            }
                         } catch (error) {
                             console.error("Error during file download:", error);
                             fileResponse = error; // Assign the error to fileResponse
@@ -106,10 +125,7 @@ class OpenAIBot extends ActivityHandler {
                 this.conversations[userId] = conversationHistory;
 
                 if (downloadUrl) {
-                    replyText =
-                        replyText + " " + "download URL: " + downloadUrl;
-                    replyText =
-                        replyText + "   " + JSON.stringify(fileResponse);
+                    //
                 } else {
                     replyText = replyText + " " + "NO ATTACHMENT";
                 }

@@ -1,5 +1,5 @@
 const {ActivityHandler, MessageFactory} = require("botbuilder");
-const {OpenAI} = require("openai");
+const {OpenAI, toFile} = require("openai");
 
 const axios = require("axios");
 
@@ -57,21 +57,43 @@ class OpenAIBot extends ActivityHandler {
                             console.log(
                                 `StatusText: ${fileResponse.statusText}`
                             );
+                            // Check file size before upload
+                            const fileBuffer = Buffer.from(fileResponse.data);
+                            const fileSizeInMB =
+                                fileBuffer.length / (1024 * 1024); // Calculate file size in MB
 
-                            try {
-                                const fileBuffer = Buffer.from(
-                                    fileResponse.data
+                            if (fileSizeInMB > 100) {
+                                // OpenAI file upload limit is 100MB
+                                console.error(
+                                    "File size exceeds the 100MB limit."
                                 );
+                                uploadSizeLimitExceededReply =
+                                    "The file is too large for me to process.";
+                                await context.sendActivity(
+                                    MessageFactory.text(
+                                        uploadSizeLimitExceededReply,
+                                        uploadSizeLimitExceededReply
+                                    )
+                                );
+                                return;
+                            }
+                            try {
+                                // Upload file to OpenAI
                                 uploadResponse = await this.openai.files.create(
                                     {
                                         purpose: "answers",
-                                        file: fileBuffer,
-                                        filename: attachment.name,
+                                        file: toFile(
+                                            fileBuffer,
+                                            attachment.name
+                                        ),
                                     }
                                 );
                                 console.log(
                                     "-- Logging OpenAI File Upload Response --"
                                 );
+                                console.log(uploadResponse);
+                                fileId = uploadResponse.id;
+                                console.log("fileId: " + fileId);
                                 console.log(uploadResponse);
                                 fileId = uploadResponse.id;
                                 console.log("fileId: " + fileId);

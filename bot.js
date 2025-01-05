@@ -41,17 +41,24 @@ class OpenAIBot extends ActivityHandler {
                 if (attachments && attachments[0]) {
                     const attachment = attachments[0];
                     const downloadUrl = await this.getAttachmentUrl(attachment);
+                    console.log("Download URL: " + downloadUrl);
                     if (downloadUrl != undefined) {
                         const fileResponse = await axios.get(downloadUrl, {
                             responseType: "arraybuffer",
                         });
+                        console.log("Logging fileResponse");
+
+                        console.log(fileResponse);
                         const fileBuffer = Buffer.from(fileResponse.data);
-                        // Upload the file to OpenAI
+
+                        // Upload the file to OpenAI with the "answers" purpose
                         const uploadResponse = await this.openai.files.create({
-                            purpose: "fine-tune",
+                            purpose: "answers", // Purpose changed from "fine-tune" to "answers"
                             file: fileBuffer,
                             filename: attachment.name,
                         });
+                        console.log("Logging uploadResponse");
+
                         // Capture the file ID from the upload response
                         fileId = uploadResponse.id;
                     }

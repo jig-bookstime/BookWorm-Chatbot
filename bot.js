@@ -7,7 +7,7 @@ class OpenAIBot extends ActivityHandler {
 
         // Initialize OpenAI client
         this.openai = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY, // OpenAI API key from .env
+            apiKey: process.env.OPENAI_API_KEY, // OpenAI API key environment variable
         });
 
         // Initialize an object to track conversation history for each user
@@ -62,25 +62,36 @@ class OpenAIBot extends ActivityHandler {
                 // Update the conversation history for the user
                 this.conversations[userId] = conversationHistory;
 
-                if (
-                    context.activity.attachments &&
-                    context.activity.attachments.length > 0
-                ) {
+                const attachments = context.activity.attachments;
+
+                if (attachments && attachments[0]) {
+                    const file = attachments[0];
+                    const downloadUrl = await this.getAttachmentUrl(file);
                     // Process each attachment
-                    for (const attachment of context.activity.attachments) {
-                        const downloadUrl = await this.getAttachmentUrl(
-                            attachment
-                        );
-                        if (downloadUrl != undefined) {
-                            replyText =
-                                replyText +
-                                " The linked attachment has DOWNLOAD URL: " +
-                                downloadUrl;
-                            replyText =
-                                replyText +
-                                ". Here is the context: " +
-                                context.activity.attachments;
-                        }
+                    // for (const attachment of context.activity.attachments) {
+                    //     const downloadUrl = await this.getAttachmentUrl(
+                    //         attachment
+                    //     );
+                    //     if (downloadUrl != undefined) {
+                    //         replyText =
+                    //             replyText +
+                    //             " The linked attachment has DOWNLOAD URL: " +
+                    //             downloadUrl;
+                    //         replyText =
+                    //             replyText +
+                    //             ". Here is the context: " +
+                    //             context.activity.attachments;
+                    //     }
+                    // }
+                    if (downloadUrl != undefined) {
+                        replyText =
+                            replyText +
+                            " The linked attachment has DOWNLOAD URL: " +
+                            downloadUrl;
+                        replyText =
+                            replyText +
+                            ". Here is the context: " +
+                            context.activity.attachments;
                     }
                 }
 
@@ -118,10 +129,11 @@ class OpenAIBot extends ActivityHandler {
         });
     }
 
-    async getAttachmentUrl(attachment) {
+    async getAttachmentUrl(file) {
         // For Teams, this would typically be the contentUrl
         // and you may need to ensure you have permission to access the file
-        return attachment.contentUrl; // This should be the URL to the file
+        // return file.contentUrl; // This should be the URL to the file
+        return file.content.downloadUrl;
     }
 
     // Function to get response from OpenAI

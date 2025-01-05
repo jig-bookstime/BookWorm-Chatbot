@@ -57,6 +57,7 @@ class OpenAIBot extends ActivityHandler {
                             console.log(
                                 `StatusText: ${fileResponse.statusText}`
                             );
+
                             try {
                                 const fileBuffer = Buffer.from(
                                     fileResponse.data
@@ -72,22 +73,31 @@ class OpenAIBot extends ActivityHandler {
                                     "-- Logging OpenAI File Upload Response --"
                                 );
                                 console.log(uploadResponse);
+                                fileId = uploadResponse.id;
+                                console.log("fileId: " + fileId);
                             } catch (openaiUploadError) {
                                 console.error(
                                     "Error during file upload to OpenAI:",
-                                    error
+                                    openaiUploadError
                                 );
                                 uploadResponse = openaiUploadError;
                             }
-                        } catch (error) {
-                            console.error("Error during file download:", error);
-                            fileResponse = error; // Assign the error to fileResponse
+                        } catch (axiosFileDownloadError) {
+                            console.error(
+                                "Error during file download:",
+                                axiosFileDownloadError
+                            );
+                            fileResponse = axiosFileDownloadError;
                         }
                     }
                 }
 
                 // Append the new user message to the conversation history
                 let userMessageWithFileContext = userMessage;
+
+                if (fileId) {
+                    userMessageWithFileContext = `Answer the questions based on the context of following file: [File: ${fileId}. ${userMessage}]`;
+                }
 
                 // Append the new user message to the conversation history
                 // conversationHistory.push({role: "user", content: userMessage});

@@ -71,8 +71,16 @@ class OpenAIBot extends ActivityHandler {
                         const downloadUrl = await this.getAttachmentUrl(
                             attachment
                         );
-
-                        replyText = replyText + "DOWNLOAD URL: " + downloadUrl;
+                        if (downloadUrl != undefined) {
+                            replyText =
+                                replyText +
+                                " The linked attachment has DOWNLOAD URL: " +
+                                downloadUrl;
+                            replyText =
+                                replyText +
+                                ". Here is the context: " +
+                                context.activity.attachments;
+                        }
                     }
                 }
 

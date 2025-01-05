@@ -1,6 +1,8 @@
 const {ActivityHandler, MessageFactory} = require("botbuilder");
 const {OpenAI} = require("openai");
 
+const MAX_PAST_MESSAGE_FOR_CONTEXT = process.env.MAX_PAST_MESSAGE_FOR_CONTEXT;
+
 class OpenAIBot extends ActivityHandler {
     constructor() {
         super();
@@ -27,7 +29,7 @@ class OpenAIBot extends ActivityHandler {
                     const systemMessage = {
                         role: "system",
                         content:
-                            "You are an intelligent assistant bot, named BookWorm, at the company BooksTime. You can assist bookkeepers, senior accountants, IT department, Senior Mangers and client service advisors with their queries to the best of your ability. You can provide sales support and management insights. You can advise staffs at BooksTime, a bookkeeping company, and answer their questions, and help them draft emails. If someone asks you, what is your name, you tell them your name is BookWorm",
+                            "You are an intelligent assistant bot, named BookWorm, at the company BooksTime. You can assist Bookkeepers, Senior Accountants, IT Department, Senior Managers and Client Service Advisors at BooksTime with their queries to the best of your ability. You can provide sales support and management insights. You can help Bookstimers (staffs at BooksTime) in analyzing financial statements, proofreading proposals for grammar errors, upselling opportunities, finding answers to questions in bank statements, help them draft emails and much much more. If someone asks you, what is your name, you tell them your name is BookWorm.",
                     };
                     conversationHistory.push(systemMessage); // Add initial system context
                 }
@@ -37,10 +39,12 @@ class OpenAIBot extends ActivityHandler {
 
                 // If the length of conversation history exceeds 10, remove the second message
                 // instead of first one in order to keep system prompt intact
-                if (conversationHistory.length > 10) {
-                    // remove the oldest message in order to keep the systemMessage intact
+                // prettier-ignore
+                if (conversationHistory.length >MAX_PAST_MESSAGE_FOR_CONTEXT + 1)
+                 {
+                    // remove the second oldest message 
+                    // in order to keep the systemMessage intact
                     conversationHistory.splice(1, 1);
-                    // conversationHistory.shift(); // Remove the first (oldest) message
                 }
 
                 // Send a typing indicator before making the OpenAI request
@@ -88,10 +92,6 @@ class OpenAIBot extends ActivityHandler {
                             replyText +
                             " The linked attachment has DOWNLOAD URL: " +
                             downloadUrl;
-                        replyText =
-                            replyText +
-                            ". Here is the context: " +
-                            context.activity.attachments;
                     }
                 }
 

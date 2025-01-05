@@ -2,6 +2,25 @@ const {ActivityHandler, MessageFactory} = require("botbuilder");
 const {OpenAI, toFile} = require("openai");
 
 const axios = require("axios");
+const pdfParse = require("pdf-parse");
+
+// Extract text from PDF
+async function extractTextFromPDF(fileBuffer) {
+    const data = await pdfParse(fileBuffer);
+    return data.text; // Returns the text extracted from the PDF
+}
+
+// Convert text to JSONL format
+function convertToJSONL(text) {
+    const lines = text.split("\n");
+    const jsonlData = lines.map((line) => {
+        return {
+            prompt: line.split("?")[0] + "?", // Example: assume questions in the PDF
+            completion: line.split("?")[1]?.trim() || "", // Assume the answer is after the question
+        };
+    });
+    return jsonlData;
+}
 
 const MAX_PAST_MESSAGE_FOR_CONTEXT = process.env.MAX_PAST_MESSAGE_FOR_CONTEXT;
 
@@ -47,6 +66,9 @@ class OpenAIBot extends ActivityHandler {
                     downloadUrl = await this.getAttachmentUrl(attachment);
                     console.log("Download URL: " + downloadUrl);
                     if (downloadUrl != undefined) {
+                        console.log("------ Logging Attachment ------");
+                        console.log(attachment);
+
                         try {
                             fileResponse = await axios.get(downloadUrl, {
                                 responseType: "arraybuffer",
@@ -89,7 +111,7 @@ class OpenAIBot extends ActivityHandler {
                                     }
                                 );
                                 console.log(
-                                    "-- Logging OpenAI File Upload Response --"
+                                    "---- Logging OpenAI File Upload Response ----"
                                 );
                                 console.log(uploadResponse);
                                 fileId = uploadResponse.id;

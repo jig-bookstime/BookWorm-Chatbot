@@ -68,7 +68,7 @@ class OpenAIBot extends ActivityHandler {
                                     "File size exceeds the 100MB limit."
                                 );
                                 uploadSizeLimitExceededReply =
-                                    "The file is too large for me to process.";
+                                    "The file is too large for me to process. Please retry with uploading file of smaller size.";
                                 await context.sendActivity(
                                     MessageFactory.text(
                                         uploadSizeLimitExceededReply,
@@ -81,7 +81,7 @@ class OpenAIBot extends ActivityHandler {
                                 // Upload file to OpenAI
                                 uploadResponse = await this.openai.files.create(
                                     {
-                                        purpose: "answers",
+                                        purpose: "fine-tune",
                                         file: await toFile(
                                             fileBuffer,
                                             attachment.name

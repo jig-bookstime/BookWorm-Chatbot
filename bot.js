@@ -82,7 +82,7 @@ class OpenAIBot extends ActivityHandler {
                                 uploadResponse = await this.openai.files.create(
                                     {
                                         purpose: "answers",
-                                        file: toFile(
+                                        file: await toFile(
                                             fileBuffer,
                                             attachment.name
                                         ),

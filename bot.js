@@ -36,8 +36,39 @@ class OpenAIBot extends ActivityHandler {
                     conversationHistory.push(systemMessage); // Add initial system context
                 }
 
+                let fileId = null;
+                const attachments = context.activity.attachments;
+                if (attachments && attachments[0]) {
+                    const attachment = attachments[0];
+                    const downloadUrl = await this.getAttachmentUrl(attachment);
+                    if (downloadUrl != undefined) {
+                        const fileResponse = await axios.get(downloadUrl, {
+                            responseType: "arraybuffer",
+                        });
+                        const fileBuffer = Buffer.from(fileResponse.data);
+                        // Upload the file to OpenAI
+                        const uploadResponse = await this.openai.files.create({
+                            purpose: "fine-tune",
+                            file: fileBuffer,
+                            filename: attachment.name,
+                        });
+                        // Capture the file ID from the upload response
+                        fileId = uploadResponse.id;
+                    }
+                }
+
                 // Append the new user message to the conversation history
-                conversationHistory.push({role: "user", content: userMessage});
+                let userMessageWithFileContext = userMessage;
+                if (fileId) {
+                    userMessageWithFileContext = `Answer the questions based on the context of following file: [file: ${fileId}]. ${userMessage}`;
+                }
+
+                // Append the new user message to the conversation history
+                // conversationHistory.push({role: "user", content: userMessage});
+                conversationHistory.push({
+                    role: "user",
+                    content: userMessageWithFileContext,
+                });
 
                 // If the length of conversation history exceeds 10
                 // remove the second oldest message
@@ -67,19 +98,9 @@ class OpenAIBot extends ActivityHandler {
                 // Update the conversation history for the user
                 this.conversations[userId] = conversationHistory;
 
-                const attachments = context.activity.attachments;
-
-                if (attachments && attachments[0]) {
-                    const file = attachments[0];
-                    const downloadUrl = await this.getAttachmentUrl(file);
-                    if (downloadUrl != undefined) {
-                        replyText =
-                            replyText +
-                            " The linked attachment has DOWNLOAD URL: " +
-                            downloadUrl;
-                    }
+                if (fileId) {
+                    replyText = replyText + " File ID: " + fileId;
                 }
-
                 // Send the OpenAI response back to the user
                 await context.sendActivity(
                     MessageFactory.text(replyText, replyText)

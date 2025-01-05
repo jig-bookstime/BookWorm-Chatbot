@@ -1,6 +1,8 @@
 const {ActivityHandler, MessageFactory} = require("botbuilder");
 const {OpenAI} = require("openai");
 
+const axios = require("axios");
+
 const MAX_PAST_MESSAGE_FOR_CONTEXT = process.env.MAX_PAST_MESSAGE_FOR_CONTEXT;
 
 class OpenAIBot extends ActivityHandler {
@@ -37,13 +39,12 @@ class OpenAIBot extends ActivityHandler {
                 // Append the new user message to the conversation history
                 conversationHistory.push({role: "user", content: userMessage});
 
-                // If the length of conversation history exceeds 10, remove the second message
-                // instead of first one in order to keep system prompt intact
+                // If the length of conversation history exceeds 10
+                // remove the second oldest message
+                // in order to keep the systemMessage intact
                 // prettier-ignore
-                if (conversationHistory.length >MAX_PAST_MESSAGE_FOR_CONTEXT + 1)
+                if (conversationHistory.length > MAX_PAST_MESSAGE_FOR_CONTEXT + 1)
                  {
-                    // remove the second oldest message 
-                    // in order to keep the systemMessage intact
                     conversationHistory.splice(1, 1);
                 }
 
@@ -71,22 +72,6 @@ class OpenAIBot extends ActivityHandler {
                 if (attachments && attachments[0]) {
                     const file = attachments[0];
                     const downloadUrl = await this.getAttachmentUrl(file);
-                    // Process each attachment
-                    // for (const attachment of context.activity.attachments) {
-                    //     const downloadUrl = await this.getAttachmentUrl(
-                    //         attachment
-                    //     );
-                    //     if (downloadUrl != undefined) {
-                    //         replyText =
-                    //             replyText +
-                    //             " The linked attachment has DOWNLOAD URL: " +
-                    //             downloadUrl;
-                    //         replyText =
-                    //             replyText +
-                    //             ". Here is the context: " +
-                    //             context.activity.attachments;
-                    //     }
-                    // }
                     if (downloadUrl != undefined) {
                         replyText =
                             replyText +
@@ -130,7 +115,6 @@ class OpenAIBot extends ActivityHandler {
     }
 
     async getAttachmentUrl(file) {
-        // For Teams, this would typically be the contentUrl
         // and you may need to ensure you have permission to access the file
         // return file.contentUrl; // This should be the URL to the file
         return file.content.downloadUrl;

@@ -37,38 +37,34 @@ class OpenAIBot extends ActivityHandler {
                 }
 
                 let fileId = null;
+                let fileResponse = null;
+                let uploadResponse = null;
                 const attachments = context.activity.attachments;
                 if (attachments && attachments[0]) {
                     const attachment = attachments[0];
                     const downloadUrl = await this.getAttachmentUrl(attachment);
                     console.log("Download URL: " + downloadUrl);
-                    if (downloadUrl != undefined) {
-                        const fileResponse = await axios.get(downloadUrl, {
+                    // if (downloadUrl != undefined) {
+                    //     fileResponse = await axios.get(downloadUrl, {
+                    //         responseType: "arraybuffer",
+                    //     });
+                    //     console.log("Logging fileResponse");
+                    //     console.log(fileResponse);
+                    // }
+                    try {
+                        fileResponse = await axios.get(downloadUrl, {
                             responseType: "arraybuffer",
                         });
                         console.log("Logging fileResponse");
-
                         console.log(fileResponse);
-                        const fileBuffer = Buffer.from(fileResponse.data);
-
-                        // Upload the file to OpenAI with the "answers" purpose
-                        const uploadResponse = await this.openai.files.create({
-                            purpose: "answers", // Purpose changed from "fine-tune" to "answers"
-                            file: fileBuffer,
-                            filename: attachment.name,
-                        });
-                        console.log("Logging uploadResponse");
-
-                        // Capture the file ID from the upload response
-                        fileId = uploadResponse.id;
+                    } catch (error) {
+                        console.error("Error during file download:", error);
+                        fileResponse = error; // Assign the error to fileResponse
                     }
                 }
 
                 // Append the new user message to the conversation history
                 let userMessageWithFileContext = userMessage;
-                if (fileId) {
-                    userMessageWithFileContext = `Answer the questions based on the context of following file: [file: ${fileId}]. ${userMessage}`;
-                }
 
                 // Append the new user message to the conversation history
                 // conversationHistory.push({role: "user", content: userMessage});
@@ -105,8 +101,9 @@ class OpenAIBot extends ActivityHandler {
                 // Update the conversation history for the user
                 this.conversations[userId] = conversationHistory;
 
-                if (fileId) {
-                    replyText = replyText + " File ID: " + fileId;
+                if (fileResponse) {
+                    replyText =
+                        replyText + "   " + JSON.stringify(fileResponse);
                 }
                 // Send the OpenAI response back to the user
                 await context.sendActivity(

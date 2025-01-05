@@ -36,13 +36,15 @@ class OpenAIBot extends ActivityHandler {
                     conversationHistory.push(systemMessage); // Add initial system context
                 }
 
-                let fileId = null;
+                let downloadUrl = null;
                 let fileResponse = null;
                 let uploadResponse = null;
+                let fileId = null;
+
                 const attachments = context.activity.attachments;
                 if (attachments && attachments[0]) {
                     const attachment = attachments[0];
-                    const downloadUrl = await this.getAttachmentUrl(attachment);
+                    downloadUrl = await this.getAttachmentUrl(attachment);
                     console.log("Download URL: " + downloadUrl);
                     // if (downloadUrl != undefined) {
                     //     fileResponse = await axios.get(downloadUrl, {
@@ -51,15 +53,17 @@ class OpenAIBot extends ActivityHandler {
                     //     console.log("Logging fileResponse");
                     //     console.log(fileResponse);
                     // }
-                    try {
-                        fileResponse = await axios.get(downloadUrl, {
-                            responseType: "arraybuffer",
-                        });
-                        console.log("Logging fileResponse");
-                        console.log(fileResponse);
-                    } catch (error) {
-                        console.error("Error during file download:", error);
-                        fileResponse = error; // Assign the error to fileResponse
+                    if (downloadUrl != undefined) {
+                        try {
+                            fileResponse = await axios.get(downloadUrl, {
+                                responseType: "arraybuffer",
+                            });
+                            console.log("Logging fileResponse");
+                            console.log(fileResponse);
+                        } catch (error) {
+                            console.error("Error during file download:", error);
+                            fileResponse = error; // Assign the error to fileResponse
+                        }
                     }
                 }
 
@@ -101,9 +105,13 @@ class OpenAIBot extends ActivityHandler {
                 // Update the conversation history for the user
                 this.conversations[userId] = conversationHistory;
 
-                if (fileResponse) {
+                if (downloadUrl) {
+                    replyText =
+                        replyText + " " + "download URL: " + downloadUrl;
                     replyText =
                         replyText + "   " + JSON.stringify(fileResponse);
+                } else {
+                    replyText = replyText + " " + "NO ATTACHMENT";
                 }
                 // Send the OpenAI response back to the user
                 await context.sendActivity(

@@ -1,199 +1,173 @@
 const {ActivityHandler, MessageFactory} = require("botbuilder");
-const {OpenAI, toFile} = require("openai");
-
+const {OpenAI} = require("openai");
 const axios = require("axios");
 const pdfParse = require("pdf-parse");
 
-// Extract text from PDF
-async function extractTextFromPDF(fileBuffer) {
-    const data = await pdfParse(fileBuffer);
-    return data.text; // Returns the text extracted from the PDF
+// Utility function to split text into chunks
+function splitIntoChunks(text, maxChunkSize = 1000) {
+    const chunks = [];
+    const sentences = text.split(/[.!?]+/); // Split by sentence boundaries
+    let currentChunk = "";
+
+    for (const sentence of sentences) {
+        if (currentChunk.length + sentence.length > maxChunkSize) {
+            chunks.push(currentChunk.trim());
+            currentChunk = "";
+        }
+        currentChunk += sentence + ". ";
+    }
+
+    if (currentChunk) {
+        chunks.push(currentChunk.trim());
+    }
+
+    return chunks;
 }
 
-// Convert text to JSONL format
-function convertToJSONL(text) {
-    const lines = text.split("\n");
-    const jsonlData = lines.map((line) => {
-        return {
-            prompt: line.split("?")[0] + "?", // Example: assume questions in the PDF
-            completion: line.split("?")[1]?.trim() || "", // Assume the answer is after the question
-        };
-    });
-    return jsonlData;
+// Calculate cosine similarity between two vectors
+function cosineSimilarity(vecA, vecB) {
+    const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
+    const normA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
+    const normB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
+    return dotProduct / (normA * normB);
 }
 
-const MAX_PAST_MESSAGE_FOR_CONTEXT = process.env.MAX_PAST_MESSAGE_FOR_CONTEXT;
+// Find most similar chunks using embeddings
+function findMostSimilarChunks(
+    chunkEmbeddings,
+    questionEmbedding,
+    numChunks = 3
+) {
+    const similarities = chunkEmbeddings.map((embedding) =>
+        cosineSimilarity(
+            embedding.embedding,
+            questionEmbedding.data[0].embedding
+        )
+    );
+
+    // Get indices of top N similar chunks
+    const topIndices = similarities
+        .map((sim, idx) => ({sim, idx}))
+        .sort((a, b) => b.sim - a.sim)
+        .slice(0, numChunks)
+        .map((item) => item.idx);
+
+    return topIndices;
+}
 
 class OpenAIBot extends ActivityHandler {
     constructor() {
         super();
 
-        // Initialize OpenAI client
         this.openai = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY, // OpenAI API key environment variable
+            apiKey: process.env.OPENAI_API_KEY,
         });
 
-        // Initialize an object to track conversation history for each user
         this.conversations = {};
+        this.documentEmbeddings = {};
 
-        // Handle incoming messages
         this.onMessage(async (context, next) => {
             const userMessage = context.activity.text;
-            const userId = context.activity.from.id; // Get user ID to store their conversation context
+            const userId = context.activity.from.id;
 
             try {
-                // Retrieve the conversation history for the user, or initialize it if not exists
                 let conversationHistory = this.conversations[userId] || [];
 
-                // If conversation is starting, add a system message to provide context to OpenAI
                 if (conversationHistory.length === 0) {
                     const systemMessage = {
                         role: "system",
                         content:
                             "You are an intelligent assistant bot, named BookWorm, at the company BooksTime. You can assist Bookkeepers, Senior Accountants, IT Department, Senior Managers and Client Service Advisors at BooksTime with their queries to the best of your ability. You can provide sales support and management insights. You can help Bookstimers (staffs at BooksTime) in analyzing financial statements, proofreading proposals for grammar errors, upselling opportunities, finding answers to questions in bank statements, help them draft emails and much much more. If someone asks you, what is your name, you tell them your name is BookWorm.",
                     };
-                    conversationHistory.push(systemMessage); // Add initial system context
+                    conversationHistory.push(systemMessage);
                 }
 
-                let downloadUrl = null;
-                let fileResponse = null;
-                let uploadResponse = null;
-                let fileId = null;
-
                 const attachments = context.activity.attachments;
-                if (attachments && attachments[0]) {
-                    const attachment = attachments[0];
-                    downloadUrl = await this.getAttachmentUrl(attachment);
-                    console.log("Download URL: " + downloadUrl);
-                    if (downloadUrl != undefined) {
-                        console.log("------ Logging Attachment ------");
-                        console.log(attachment);
 
-                        try {
-                            fileResponse = await axios.get(downloadUrl, {
+                if (attachments && attachments[0]) {
+                    try {
+                        const downloadUrl = await this.getAttachmentUrl(
+                            attachments[0]
+                        );
+                        if (downloadUrl) {
+                            const fileResponse = await axios.get(downloadUrl, {
                                 responseType: "arraybuffer",
                             });
-                            console.log("-- Logging fileResponse --");
-                            console.log("Logging fileResponse status:");
-                            console.log(`Status: ${fileResponse.status}`);
-                            console.log(
-                                `StatusText: ${fileResponse.statusText}`
-                            );
-                            // Check file size before upload
+
                             const fileBuffer = Buffer.from(fileResponse.data);
                             const fileSizeInMB =
-                                fileBuffer.length / (1024 * 1024); // Calculate file size in MB
+                                fileBuffer.length / (1024 * 1024);
 
-                            if (fileSizeInMB > 100) {
-                                // OpenAI file upload limit is 100MB
-                                console.error(
-                                    "File size exceeds the 100MB limit."
-                                );
-                                uploadSizeLimitExceededReply =
-                                    "The file is too large for me to process. Please retry with uploading file of smaller size.";
+                            if (fileSizeInMB > 20) {
                                 await context.sendActivity(
                                     MessageFactory.text(
-                                        uploadSizeLimitExceededReply,
-                                        uploadSizeLimitExceededReply
+                                        "The file is too large. Please upload a smaller file (under 20MB)."
                                     )
                                 );
                                 return;
                             }
-                            try {
-                                // Upload file to OpenAI
-                                uploadResponse = await this.openai.files.create(
-                                    {
-                                        purpose: "fine-tune",
-                                        file: await toFile(
-                                            fileBuffer,
-                                            attachment.name
-                                        ),
-                                    }
-                                );
-                                console.log(
-                                    "---- Logging OpenAI File Upload Response ----"
-                                );
-                                console.log(uploadResponse);
-                                fileId = uploadResponse.id;
-                                console.log("fileId: " + fileId);
-                                console.log(uploadResponse);
-                                fileId = uploadResponse.id;
-                                console.log("fileId: " + fileId);
-                            } catch (openaiUploadError) {
-                                console.error(
-                                    "Error during file upload to OpenAI:",
-                                    openaiUploadError
-                                );
-                                uploadResponse = openaiUploadError;
-                            }
-                        } catch (axiosFileDownloadError) {
-                            console.error(
-                                "Error during file download:",
-                                axiosFileDownloadError
+
+                            // Extract text from PDF and process document
+                            const documentText = await extractTextFromPDF(
+                                fileBuffer
                             );
-                            fileResponse = axiosFileDownloadError;
+                            await this.processDocument(userId, documentText);
                         }
+                    } catch (error) {
+                        console.error("Error processing file:", error);
+                        await context.sendActivity(
+                            MessageFactory.text(
+                                "I encountered an error while processing your file. Please make sure it's a valid PDF document."
+                            )
+                        );
+                        return;
                     }
                 }
 
-                // Append the new user message to the conversation history
-                let userMessageWithFileContext = userMessage;
+                // Get relevant context if document exists
+                const relevantContext = await this.getRelevantContext(
+                    userId,
+                    userMessage
+                );
 
-                if (fileId) {
-                    userMessageWithFileContext = `Answer the questions based on the context of following file: [File: ${fileId}. ${userMessage}]`;
+                // Prepare the message with document context if available
+                let messageWithContext = userMessage;
+                if (relevantContext) {
+                    messageWithContext = `Using the following relevant document context: "${relevantContext}" \n\nUser question: ${userMessage}`;
                 }
 
-                // Append the new user message to the conversation history
-                // conversationHistory.push({role: "user", content: userMessage});
                 conversationHistory.push({
                     role: "user",
-                    content: userMessageWithFileContext,
+                    content: messageWithContext,
                 });
 
-                // If the length of conversation history exceeds 10
-                // remove the second oldest message
-                // in order to keep the systemMessage intact
-                // prettier-ignore
-                if (conversationHistory.length > MAX_PAST_MESSAGE_FOR_CONTEXT + 1)
-                 {
+                if (
+                    conversationHistory.length >
+                    process.env.MAX_PAST_MESSAGE_FOR_CONTEXT + 1
+                ) {
                     conversationHistory.splice(1, 1);
                 }
 
-                // Send a typing indicator before making the OpenAI request
-                await context.sendActivity({
-                    type: "typing",
-                });
+                await context.sendActivity({type: "typing"});
 
-                // Get the reply from OpenAI
-                let replyText = await this.getOpenAIResponse(
+                const replyText = await this.getOpenAIResponse(
                     conversationHistory
                 );
 
-                // Save the bot's response in the conversation history
                 conversationHistory.push({
                     role: "assistant",
                     content: replyText,
                 });
 
-                // Update the conversation history for the user
                 this.conversations[userId] = conversationHistory;
 
-                if (downloadUrl) {
-                    //
-                } else {
-                    replyText = replyText + " " + "NO ATTACHMENT";
-                }
-                // Send the OpenAI response back to the user
                 await context.sendActivity(
                     MessageFactory.text(replyText, replyText)
                 );
             } catch (error) {
-                console.error(
-                    "Error while getting response from OpenAI:",
-                    error
-                );
+                console.error("Error while processing message:", error);
                 await context.sendActivity(
-                    "Sorry, I can not answer your question at the moment. Please try again later. If this issue still persists, please reach out to the IT Team at BooksTime."
+                    "Sorry, I cannot answer your question at the moment. Please try again later or contact the IT Team at BooksTime."
                 );
             }
 
@@ -217,25 +191,73 @@ class OpenAIBot extends ActivityHandler {
         });
     }
 
+    async processDocument(userId, documentText) {
+        // Split document into chunks
+        const chunks = splitIntoChunks(documentText);
+
+        // Get embeddings for all chunks
+        const embeddings = await this.openai.embeddings.create({
+            model: "text-embedding-ada-002",
+            input: chunks,
+        });
+
+        // Store chunks and embeddings for the user
+        this.documentEmbeddings[userId] = {
+            chunks,
+            embeddings: embeddings.data,
+        };
+    }
+
+    async getRelevantContext(userId, question) {
+        const docData = this.documentEmbeddings[userId];
+        if (!docData) return null;
+
+        // Get embedding for the question
+        const questionEmbedding = await this.openai.embeddings.create({
+            model: "text-embedding-ada-002",
+            input: question,
+        });
+
+        // Find most similar chunks
+        const topIndices = findMostSimilarChunks(
+            docData.embeddings,
+            questionEmbedding
+        );
+
+        // Combine relevant chunks
+        const relevantText = topIndices
+            .map((idx) => docData.chunks[idx])
+            .join("\n\n");
+
+        return relevantText;
+    }
+
     async getAttachmentUrl(file) {
-        // and you may need to ensure you have permission to access the file
-        // return file.contentUrl; // This should be the URL to the file
         return file.content.downloadUrl;
     }
 
-    // Function to get response from OpenAI
     async getOpenAIResponse(conversationHistory) {
         try {
             const response = await this.openai.chat.completions.create({
                 model: process.env.OPENAI_MODEL,
-                messages: conversationHistory, // Pass the entire conversation history
+                messages: conversationHistory,
+                temperature: 0.7,
+                max_tokens: 1000,
             });
 
-            // Return the bot's response (assistant's message)
             return response.choices[0].message.content;
         } catch (error) {
             throw new Error(`OpenAI API error: ${error.message}`);
         }
+    }
+}
+
+async function extractTextFromPDF(fileBuffer) {
+    try {
+        const data = await pdfParse(fileBuffer);
+        return data.text;
+    } catch (error) {
+        throw new Error(`Error extracting text from PDF: ${error.message}`);
     }
 }
 

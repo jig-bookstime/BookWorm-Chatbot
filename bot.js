@@ -10,6 +10,8 @@ const mammoth = require("mammoth");
 //     return extension;
 // }
 
+const supportedFileTypes = ["pdf", "doc", "docx"];
+
 // Extract text based on file type
 async function extractTextFromDocument(fileBuffer, fileType) {
     switch (fileType) {
@@ -106,23 +108,23 @@ class OpenAIBot extends ActivityHandler {
                 if (attachments && attachments[0]) {
                     try {
                         const attachment = attachments[0];
-                        // const fileType = getFileType(attachment.name);
-                        const fileType = await this.getFileType(attachment);
-
-                        // Check if file type is supported
-                        if (!["pdf", "doc", "docx"].includes(fileType)) {
-                            await context.sendActivity(
-                                MessageFactory.text(
-                                    "Sorry, I can only process PDF, DOC, and DOCX files at the moment."
-                                )
-                            );
-                            return;
-                        }
 
                         const downloadUrl = await this.getAttachmentUrl(
                             attachment
                         );
                         if (downloadUrl) {
+                            // check attachment file type
+                            const fileType = await this.getFileType(attachment);
+
+                            // Check if file type is supported
+                            if (!supportedFileTypes.includes(fileType)) {
+                                await context.sendActivity(
+                                    MessageFactory.text(
+                                        "Sorry, I can only process PDF, DOC, and DOCX files at the moment."
+                                    )
+                                );
+                                return;
+                            }
                             const fileResponse = await axios.get(downloadUrl, {
                                 responseType: "arraybuffer",
                             });

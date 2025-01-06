@@ -2,11 +2,33 @@ const {ActivityHandler, MessageFactory} = require("botbuilder");
 const {OpenAI} = require("openai");
 const axios = require("axios");
 const pdfParse = require("pdf-parse");
+const mammoth = require("mammoth");
 
-// Utility function to split text into chunks
+// Utility function to determine file type from name
+// function getFileType(fileName) {
+//     const extension = fileName.toLowerCase().split(".").pop();
+//     return extension;
+// }
+
+// Extract text based on file type
+async function extractTextFromDocument(fileBuffer, fileType) {
+    switch (fileType) {
+        case "pdf":
+            const pdfData = await pdfParse(fileBuffer);
+            return pdfData.text;
+        case "doc":
+        case "docx":
+            const result = await mammoth.extractRawText({buffer: fileBuffer});
+            return result.value;
+        default:
+            throw new Error(`Unsupported file type: ${fileType}`);
+    }
+}
+
+// Rest of the utility functions remain the same
 function splitIntoChunks(text, maxChunkSize = 1000) {
     const chunks = [];
-    const sentences = text.split(/[.!?]+/); // Split by sentence boundaries
+    const sentences = text.split(/[.!?]+/);
     let currentChunk = "";
 
     for (const sentence of sentences) {
@@ -24,7 +46,6 @@ function splitIntoChunks(text, maxChunkSize = 1000) {
     return chunks;
 }
 
-// Calculate cosine similarity between two vectors
 function cosineSimilarity(vecA, vecB) {
     const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
     const normA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
@@ -32,7 +53,6 @@ function cosineSimilarity(vecA, vecB) {
     return dotProduct / (normA * normB);
 }
 
-// Find most similar chunks using embeddings
 function findMostSimilarChunks(
     chunkEmbeddings,
     questionEmbedding,
@@ -45,7 +65,6 @@ function findMostSimilarChunks(
         )
     );
 
-    // Get indices of top N similar chunks
     const topIndices = similarities
         .map((sim, idx) => ({sim, idx}))
         .sort((a, b) => b.sim - a.sim)
@@ -86,8 +105,22 @@ class OpenAIBot extends ActivityHandler {
 
                 if (attachments && attachments[0]) {
                     try {
+                        const attachment = attachments[0];
+                        // const fileType = getFileType(attachment.name);
+                        const fileType = await this.getFileType(attachment);
+
+                        // Check if file type is supported
+                        if (!["pdf", "doc", "docx"].includes(fileType)) {
+                            await context.sendActivity(
+                                MessageFactory.text(
+                                    "Sorry, I can only process PDF, DOC, and DOCX files at the moment."
+                                )
+                            );
+                            return;
+                        }
+
                         const downloadUrl = await this.getAttachmentUrl(
-                            attachments[0]
+                            attachment
                         );
                         if (downloadUrl) {
                             const fileResponse = await axios.get(downloadUrl, {
@@ -107,9 +140,10 @@ class OpenAIBot extends ActivityHandler {
                                 return;
                             }
 
-                            // Extract text from PDF and process document
-                            const documentText = await extractTextFromPDF(
-                                fileBuffer
+                            // Extract text from document based on file type
+                            const documentText = await extractTextFromDocument(
+                                fileBuffer,
+                                fileType
                             );
                             await this.processDocument(userId, documentText);
                         }
@@ -117,7 +151,7 @@ class OpenAIBot extends ActivityHandler {
                         console.error("Error processing file:", error);
                         await context.sendActivity(
                             MessageFactory.text(
-                                "I encountered an error while processing your file. Please make sure it's a valid PDF document."
+                                "I encountered an error while processing your file. Please make sure it's a valid document file."
                             )
                         );
                         return;
@@ -167,17 +201,18 @@ class OpenAIBot extends ActivityHandler {
             } catch (error) {
                 console.error("Error while processing message:", error);
                 await context.sendActivity(
-                    "Sorry, I cannot answer your question at the moment. Please try again later or contact the IT Team at BooksTime."
+                    "Sorry, I cannot answer your question at the moment. Please try again later and if the issue persists, contact the IT Team at BooksTime."
                 );
             }
 
             await next();
         });
 
+        // Rest of the class implementation remains the same...
         this.onMembersAdded(async (context, next) => {
             const membersAdded = context.activity.membersAdded;
             const welcomeText =
-                "Hello BooksTimer! I am BookWorm, an Intelligent Conversational Chatbot.\nHow can I help you today?";
+                "Hello BooksTimer! I am BookWorm, an intelligent conversational Chatbot.\nHow can I help you today?";
 
             for (let cnt = 0; cnt < membersAdded.length; ++cnt) {
                 if (membersAdded[cnt].id !== context.activity.recipient.id) {
@@ -191,17 +226,13 @@ class OpenAIBot extends ActivityHandler {
         });
     }
 
+    // Rest of the methods remain the same...
     async processDocument(userId, documentText) {
-        // Split document into chunks
         const chunks = splitIntoChunks(documentText);
-
-        // Get embeddings for all chunks
         const embeddings = await this.openai.embeddings.create({
             model: "text-embedding-ada-002",
             input: chunks,
         });
-
-        // Store chunks and embeddings for the user
         this.documentEmbeddings[userId] = {
             chunks,
             embeddings: embeddings.data,
@@ -212,19 +243,15 @@ class OpenAIBot extends ActivityHandler {
         const docData = this.documentEmbeddings[userId];
         if (!docData) return null;
 
-        // Get embedding for the question
         const questionEmbedding = await this.openai.embeddings.create({
             model: "text-embedding-ada-002",
             input: question,
         });
 
-        // Find most similar chunks
         const topIndices = findMostSimilarChunks(
             docData.embeddings,
             questionEmbedding
         );
-
-        // Combine relevant chunks
         const relevantText = topIndices
             .map((idx) => docData.chunks[idx])
             .join("\n\n");
@@ -232,8 +259,12 @@ class OpenAIBot extends ActivityHandler {
         return relevantText;
     }
 
-    async getAttachmentUrl(file) {
-        return file.content.downloadUrl;
+    async getAttachmentUrl(attachment) {
+        return attachment.content.downloadUrl;
+    }
+
+    async getFileType(attachment) {
+        return attachment.content.fileType;
     }
 
     async getOpenAIResponse(conversationHistory) {
@@ -249,15 +280,6 @@ class OpenAIBot extends ActivityHandler {
         } catch (error) {
             throw new Error(`OpenAI API error: ${error.message}`);
         }
-    }
-}
-
-async function extractTextFromPDF(fileBuffer) {
-    try {
-        const data = await pdfParse(fileBuffer);
-        return data.text;
-    } catch (error) {
-        throw new Error(`Error extracting text from PDF: ${error.message}`);
     }
 }
 

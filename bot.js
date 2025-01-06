@@ -90,7 +90,7 @@ class OpenAIBot extends ActivityHandler {
         this.onMessage(async (context, next) => {
             const userMessage = context.activity.text;
             const userId = context.activity.from.id;
-
+            let isValidAttachment = false;
             try {
                 let conversationHistory = this.conversations[userId] || [];
 
@@ -142,6 +142,8 @@ class OpenAIBot extends ActivityHandler {
                                 return;
                             }
 
+                            isValidAttachment = true;
+
                             // Extract text from document based on file type
                             const documentText = await extractTextFromDocument(
                                 fileBuffer,
@@ -168,8 +170,10 @@ class OpenAIBot extends ActivityHandler {
 
                 // Prepare the message with document context if available
                 let messageWithContext = userMessage;
-                if (relevantContext) {
-                    messageWithContext = `Using the following relevant document context: "${relevantContext}" \n\nUser question: ${userMessage}`;
+                if (isValidAttachment) {
+                    if (relevantContext) {
+                        messageWithContext = `Using the relevant document context: "${relevantContext}" \n\nUser question: ${userMessage}`;
+                    }
                 }
 
                 conversationHistory.push({

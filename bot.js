@@ -3,14 +3,10 @@ const {OpenAI} = require("openai");
 const axios = require("axios");
 const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
+const XLSX = require("xlsx");
 
-// Utility function to determine file type from name
-// function getFileType(fileName) {
-//     const extension = fileName.toLowerCase().split(".").pop();
-//     return extension;
-// }
-
-const supportedFileTypes = ["pdf", "doc", "docx"];
+// Update supported file types to include Excel formats
+const supportedFileTypes = ["pdf", "doc", "docx", "xlsx", "xls"];
 
 // Extract text based on file type
 async function extractTextFromDocument(fileBuffer, fileType) {
@@ -22,58 +18,61 @@ async function extractTextFromDocument(fileBuffer, fileType) {
         case "docx":
             const result = await mammoth.extractRawText({buffer: fileBuffer});
             return result.value;
+        case "xlsx":
+        case "xls":
+            // return extractTextFromExcel(fileBuffer);
+            const excelExtractedData = await extractTextFromExcel(fileBuffer);
+            return excelExtractedData;
         default:
             throw new Error(`Unsupported file type: ${fileType}`);
     }
 }
 
-// Rest of the utility functions remain the same
-function splitIntoChunks(text, maxChunkSize = 1000) {
-    const chunks = [];
-    const sentences = text.split(/[.!?]+/);
-    let currentChunk = "";
+// New function to handle Excel files
+async function extractTextFromExcel(fileBuffer) {
+    const workbook = XLSX.read(fileBuffer, {type: "buffer"});
+    let fullText = [];
 
-    for (const sentence of sentences) {
-        if (currentChunk.length + sentence.length > maxChunkSize) {
-            chunks.push(currentChunk.trim());
-            currentChunk = "";
+    // Process each sheet in the workbook
+    workbook.SheetNames.forEach((sheetName) => {
+        const worksheet = workbook.Sheets[sheetName];
+
+        // Convert sheet to JSON for easier processing
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+
+        // Add sheet name as context
+        fullText.push(`Sheet: ${sheetName}`);
+
+        // Get headers (first row)
+        const headers = jsonData[0] || [];
+
+        // Process each row
+        for (let i = 1; i < jsonData.length; i++) {
+            const row = jsonData[i];
+            if (row.length === 0) continue; // Skip empty rows
+
+            // Create structured text from each row
+            const rowText = headers
+                .map((header, index) => {
+                    const value = row[index];
+                    if (value !== undefined && value !== null) {
+                        return `${header}: ${value}`;
+                    }
+                    return null;
+                })
+                .filter((item) => item !== null)
+                .join(", ");
+
+            if (rowText) {
+                fullText.push(rowText);
+            }
         }
-        currentChunk += sentence + ". ";
-    }
 
-    if (currentChunk) {
-        chunks.push(currentChunk.trim());
-    }
+        // Add separator between sheets
+        fullText.push("\n---\n");
+    });
 
-    return chunks;
-}
-
-function cosineSimilarity(vecA, vecB) {
-    const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
-    const normA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
-    const normB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
-    return dotProduct / (normA * normB);
-}
-
-function findMostSimilarChunks(
-    chunkEmbeddings,
-    questionEmbedding,
-    numChunks = 3
-) {
-    const similarities = chunkEmbeddings.map((embedding) =>
-        cosineSimilarity(
-            embedding.embedding,
-            questionEmbedding.data[0].embedding
-        )
-    );
-
-    const topIndices = similarities
-        .map((sim, idx) => ({sim, idx}))
-        .sort((a, b) => b.sim - a.sim)
-        .slice(0, numChunks)
-        .map((item) => item.idx);
-
-    return topIndices;
+    return fullText.join("\n");
 }
 
 class OpenAIBot extends ActivityHandler {
@@ -98,7 +97,7 @@ class OpenAIBot extends ActivityHandler {
                     const systemMessage = {
                         role: "system",
                         content:
-                            "You are an intelligent assistant bot, named BookWorm, at the company BooksTime. You can assist Bookkeepers, Senior Accountants, IT Department, Senior Managers and Client Service Advisors at BooksTime with their queries to the best of your ability. You can provide sales support and management insights. You can help Bookstimers (staffs at BooksTime) in analyzing financial statements, proofreading proposals for grammar errors, upselling opportunities, finding answers to questions in bank statements, help them draft emails and much much more. If someone asks you, what is your name, you tell them your name is BookWorm.",
+                            "You are an intelligent assistant bot, named BookWorm, at the company BooksTime. You can assist Bookkeepers, Senior Accountants, IT Department, Senior Managers and Client Service Advisors at BooksTime with their queries to the best of your ability. You can provide sales support and management insights. You can help Bookstimers (staffs at BooksTime) in analyzing financial statements, proofreading proposals for grammar errors, upselling opportunities, finding answers to questions in bank statements, help them draft emails and much much more. When analyzing Excel data, provide specific insights and calculations based on the numerical data provided. For financial data, include relevant metrics and trends when appropriate. If someone asks you, what is your name, you tell them your name is BookWorm.",
                     };
                     conversationHistory.push(systemMessage);
                 }
@@ -108,23 +107,23 @@ class OpenAIBot extends ActivityHandler {
                 if (attachments && attachments[0]) {
                     try {
                         const attachment = attachments[0];
-
                         const downloadUrl = await this.getAttachmentUrl(
                             attachment
                         );
+
                         if (downloadUrl) {
-                            // check attachment file type
                             const fileType = await this.getFileType(attachment);
 
-                            // Check if file type is supported
                             if (!supportedFileTypes.includes(fileType)) {
                                 await context.sendActivity(
                                     MessageFactory.text(
-                                        "Sorry, I can only process PDF, DOC, and DOCX files at the moment."
+                                        "Sorry, I can only process PDF, DOC, DOCX, XLSX, and XLS files at the moment."
                                     )
                                 );
                                 return;
                             }
+                            console.log("UPLOADED FILE TYPE: " + fileType);
+
                             const fileResponse = await axios.get(downloadUrl, {
                                 responseType: "arraybuffer",
                             });
@@ -144,12 +143,21 @@ class OpenAIBot extends ActivityHandler {
 
                             isValidAttachment = true;
 
-                            // Extract text from document based on file type
+                            // Extract text from document
                             const documentText = await extractTextFromDocument(
                                 fileBuffer,
                                 fileType
                             );
                             await this.processDocument(userId, documentText);
+
+                            // Acknowledge successful processing of Excel file
+                            // if (fileType === "xlsx" || fileType === "xls") {
+                            //     await context.sendActivity(
+                            //         MessageFactory.text(
+                            //             "I've processed your Excel file. You can now ask questions about the data!"
+                            //         )
+                            //     );
+                            // }
                         }
                     } catch (error) {
                         console.error("Error processing file:", error);
@@ -232,7 +240,6 @@ class OpenAIBot extends ActivityHandler {
         });
     }
 
-    // Rest of the methods remain the same...
     async processDocument(userId, documentText) {
         const chunks = splitIntoChunks(documentText);
         const embeddings = await this.openai.embeddings.create({

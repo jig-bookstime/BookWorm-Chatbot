@@ -75,6 +75,55 @@ async function extractTextFromExcel(fileBuffer) {
     return fullText.join("\n");
 }
 
+// Rest of the utility functions remain the same
+function splitIntoChunks(text, maxChunkSize = 1000) {
+    const chunks = [];
+    const sentences = text.split(/[.!?]+/);
+    let currentChunk = "";
+
+    for (const sentence of sentences) {
+        if (currentChunk.length + sentence.length > maxChunkSize) {
+            chunks.push(currentChunk.trim());
+            currentChunk = "";
+        }
+        currentChunk += sentence + ". ";
+    }
+
+    if (currentChunk) {
+        chunks.push(currentChunk.trim());
+    }
+
+    return chunks;
+}
+
+function cosineSimilarity(vecA, vecB) {
+    const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
+    const normA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
+    const normB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
+    return dotProduct / (normA * normB);
+}
+
+function findMostSimilarChunks(
+    chunkEmbeddings,
+    questionEmbedding,
+    numChunks = 3
+) {
+    const similarities = chunkEmbeddings.map((embedding) =>
+        cosineSimilarity(
+            embedding.embedding,
+            questionEmbedding.data[0].embedding
+        )
+    );
+
+    const topIndices = similarities
+        .map((sim, idx) => ({sim, idx}))
+        .sort((a, b) => b.sim - a.sim)
+        .slice(0, numChunks)
+        .map((item) => item.idx);
+
+    return topIndices;
+}
+
 class OpenAIBot extends ActivityHandler {
     constructor() {
         super();

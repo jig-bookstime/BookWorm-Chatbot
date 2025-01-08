@@ -11,7 +11,6 @@ const supportedFileTypes = ["pdf", "doc", "docx", "xlsx", "xls"];
 // New function to handle Excel files
 async function extractTextFromExcel(fileBuffer) {
     try {
-        // Read the workbook with more specific options
         const workbook = XLSX.read(fileBuffer, {
             type: "buffer",
             cellDates: true,
@@ -22,66 +21,63 @@ async function extractTextFromExcel(fileBuffer) {
 
         let fullText = [];
 
-        // Process each sheet in the workbook
         for (const sheetName of workbook.SheetNames) {
-            // Add sheet name as context
-            fullText.push(`Sheet: ${sheetName}`);
-
-            // Get the worksheet
             const worksheet = workbook.Sheets[sheetName];
 
-            // Convert to JSON with specific options
+            // Convert to JSON with header row
             const jsonData = XLSX.utils.sheet_to_json(worksheet, {
                 header: 1,
-                raw: false,
+                raw: true,
                 dateNF: "yyyy-mm-dd",
             });
 
-            // Get headers (first row)
-            const headers = jsonData[0] || [];
+            if (jsonData.length === 0) continue;
 
-            // Skip if no headers or empty sheet
-            if (headers.length === 0) continue;
+            fullText.push(`Table: ${sheetName}\n`);
 
-            // Process each row
+            // Get headers
+            const headers = jsonData[0].map((h) =>
+                h ? h.toString().trim() : ""
+            );
+
+            // Create markdown table
+            const tableRows = [];
+
+            // Add header row
+            tableRows.push(`| ${headers.join(" | ")} |`);
+
+            // Add separator row
+            tableRows.push(`| ${headers.map(() => "---").join(" | ")} |`);
+
+            // Add data rows
             for (let i = 1; i < jsonData.length; i++) {
                 const row = jsonData[i];
-                if (!row || row.length === 0) continue; // Skip empty rows
+                if (!row || row.length === 0) continue;
 
-                // Create structured text from each row
-                const rowText = headers
-                    .map((header, index) => {
-                        if (!header) return null; // Skip if header is empty
-                        const value = row[index];
-                        if (
-                            value !== undefined &&
-                            value !== null &&
-                            value !== ""
-                        ) {
-                            // Handle different types of values
-                            let formattedValue = value;
-                            if (value instanceof Date) {
-                                formattedValue = value
-                                    .toISOString()
-                                    .split("T")[0];
-                            } else if (typeof value === "number") {
-                                formattedValue = value.toString();
-                            }
-                            return `${header}: ${formattedValue}`;
-                        }
-                        return null;
-                    })
-                    .filter((item) => item !== null)
-                    .join(", ");
+                // Format each cell value
+                const formattedRow = headers.map((_, index) => {
+                    const value = row[index];
+                    if (value === undefined || value === null) return "";
+                    if (value instanceof Date)
+                        return value.toISOString().split("T")[0];
+                    if (typeof value === "number") return value.toString();
+                    return value.toString().trim();
+                });
 
-                if (rowText) {
-                    fullText.push(rowText);
-                }
+                tableRows.push(`| ${formattedRow.join(" | ")} |`);
             }
 
-            // Add separator between sheets
+            // Add the table to fullText
+            fullText.push(tableRows.join("\n"));
             fullText.push("\n---\n");
         }
+
+        // Add a summary for GPT
+        const tableSummary =
+            "The above data is presented in table format. Each table represents a sheet from the Excel file. " +
+            "You can perform calculations, analyze trends, and answer questions about the data using the tabular information provided.";
+
+        fullText.push(tableSummary);
 
         return fullText.join("\n");
     } catch (error) {
@@ -186,7 +182,7 @@ class OpenAIBot extends ActivityHandler {
                     const systemMessage = {
                         role: "system",
                         content:
-                            "You are an intelligent assistant bot, named BookWorm, at the company BooksTime. You can assist Bookkeepers, Senior Accountants, IT Department, Senior Managers and Client Service Advisors at BooksTime with their queries to the best of your ability. You can provide sales support and management insights. You can help Bookstimers (staffs at BooksTime) in analyzing financial statements, proofreading proposals for grammar errors, upselling opportunities, finding answers to questions in bank statements, help them draft emails and much much more. When analyzing Excel data, provide specific insights and calculations based on the numerical data provided. For financial data, include relevant metrics and trends when appropriate. If someone asks you, what is your name, you tell them your name is BookWorm.",
+                            "You are an intelligent assistant bot, named BookWorm, at the company BooksTime. You can assist Bookkeepers, Senior Accountants, IT Department, Senior Managers and Client Service Advisors at BooksTime with their queries to the best of your ability. You can provide sales support and management insights. You can help Bookstimers (staffs at BooksTime) in analyzing financial statements, proofreading proposals for grammar errors, upselling opportunities, finding answers to questions in bank statements, help them draft emails and much much more. When analyzing Excel data, provide specific insights and calculations based on the numerical data provided. For financial data, include relevant metrics and trends when appropriate. If someone asks you, what is your name, you tell them your name is BookWorm. When working with Excel data, the data will be presented in markdown table format,you can perform calculations on the numerical values, You can analyze trends and patterns in the data, you can compare values across different columns and rows, you should provide specific numerical insights when relevant, for financial data, include relevant metrics and calculations. Always show your calculations when performing numerical analysis.",
                     };
                     conversationHistory.push(systemMessage);
                 }

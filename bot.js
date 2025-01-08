@@ -8,6 +8,88 @@ const XLSX = require("xlsx");
 // Update supported file types to include Excel formats
 const supportedFileTypes = ["pdf", "doc", "docx", "xlsx", "xls"];
 
+// New function to handle Excel files
+async function extractTextFromExcel(fileBuffer) {
+    try {
+        // Read the workbook with more specific options
+        const workbook = XLSX.read(fileBuffer, {
+            type: "buffer",
+            cellDates: true,
+            cellNF: false,
+            cellText: false,
+            compression: true,
+        });
+
+        let fullText = [];
+
+        // Process each sheet in the workbook
+        for (const sheetName of workbook.SheetNames) {
+            // Add sheet name as context
+            fullText.push(`Sheet: ${sheetName}`);
+
+            // Get the worksheet
+            const worksheet = workbook.Sheets[sheetName];
+
+            // Convert to JSON with specific options
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+                header: 1,
+                raw: false,
+                dateNF: "yyyy-mm-dd",
+            });
+
+            // Get headers (first row)
+            const headers = jsonData[0] || [];
+
+            // Skip if no headers or empty sheet
+            if (headers.length === 0) continue;
+
+            // Process each row
+            for (let i = 1; i < jsonData.length; i++) {
+                const row = jsonData[i];
+                if (!row || row.length === 0) continue; // Skip empty rows
+
+                // Create structured text from each row
+                const rowText = headers
+                    .map((header, index) => {
+                        if (!header) return null; // Skip if header is empty
+                        const value = row[index];
+                        if (
+                            value !== undefined &&
+                            value !== null &&
+                            value !== ""
+                        ) {
+                            // Handle different types of values
+                            let formattedValue = value;
+                            if (value instanceof Date) {
+                                formattedValue = value
+                                    .toISOString()
+                                    .split("T")[0];
+                            } else if (typeof value === "number") {
+                                formattedValue = value.toString();
+                            }
+                            return `${header}: ${formattedValue}`;
+                        }
+                        return null;
+                    })
+                    .filter((item) => item !== null)
+                    .join(", ");
+
+                if (rowText) {
+                    fullText.push(rowText);
+                }
+            }
+
+            // Add separator between sheets
+            fullText.push("\n---\n");
+        }
+
+        return fullText.join("\n");
+    } catch (error) {
+        console.error("Excel processing error:", error);
+        return null;
+    }
+}
+
 // Extract text based on file type
 async function extractTextFromDocument(fileBuffer, fileType) {
     switch (fileType) {
@@ -22,57 +104,15 @@ async function extractTextFromDocument(fileBuffer, fileType) {
         case "xls":
             // return extractTextFromExcel(fileBuffer);
             const excelExtractedData = await extractTextFromExcel(fileBuffer);
+            if (!excelExtractedData) {
+                console.log("NULL extracted!");
+
+                return "";
+            }
             return excelExtractedData;
         default:
             throw new Error(`Unsupported file type: ${fileType}`);
     }
-}
-
-// New function to handle Excel files
-async function extractTextFromExcel(fileBuffer) {
-    const workbook = XLSX.read(fileBuffer, {type: "buffer"});
-    let fullText = [];
-
-    // Process each sheet in the workbook
-    workbook.SheetNames.forEach((sheetName) => {
-        const worksheet = workbook.Sheets[sheetName];
-
-        // Convert sheet to JSON for easier processing
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, {header: 1});
-
-        // Add sheet name as context
-        fullText.push(`Sheet: ${sheetName}`);
-
-        // Get headers (first row)
-        const headers = jsonData[0] || [];
-
-        // Process each row
-        for (let i = 1; i < jsonData.length; i++) {
-            const row = jsonData[i];
-            if (row.length === 0) continue; // Skip empty rows
-
-            // Create structured text from each row
-            const rowText = headers
-                .map((header, index) => {
-                    const value = row[index];
-                    if (value !== undefined && value !== null) {
-                        return `${header}: ${value}`;
-                    }
-                    return null;
-                })
-                .filter((item) => item !== null)
-                .join(", ");
-
-            if (rowText) {
-                fullText.push(rowText);
-            }
-        }
-
-        // Add separator between sheets
-        fullText.push("\n---\n");
-    });
-
-    return fullText.join("\n");
 }
 
 // Rest of the utility functions remain the same
